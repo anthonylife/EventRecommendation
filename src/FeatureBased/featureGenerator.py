@@ -26,35 +26,24 @@
 import sys, csv, json, argparse, random, math
 sys.path.append("../")
 import numpy as np
+from geopy import distance
 from collections import defaultdict
 from utils import getIdOfTimePeriod, isChinese, getStopwords
 
+distance.distance = distance.GreatCircleDistance
 settings = json.loads(open("../../SETTINGS.json").read())
 
 class FeatureGenerator():
     def __init__(self, gen_feature_method, friend_path, event_path, tr_data_path):
         self.gen_feature_method = gen_feature_method
-        # for testing
-        if self.gen_feature_method == 0:
-            self.stopwords = self.getStopwords()
-            self.user_friends = self.loadFriendship(friend_path)
-            self.event_info = self.loadEventInfo(event_path)
-            self.user_attend_event = self.loadUserAttendEvent(tr_data_path)
-            self.organizor_hold_event = self.calOrganizorHoldEvent()
-            self.user_attend_content = self.calUserContent()
-            self.user_attend_category = self.calUserCategoryPref()
-            self.user_attend_location = self.calUserLocation()
-        # for training
-        elif self.gen_feature_method == 1:
-            self.stopwords = self.getStopwords()
-            self.user_friendship = self.loadFriendship()
-            self.event_info = self.loadEventInfo()
-            self.user_attend_event = self.loadUserAttendEvent()
-            self.organizor_hold_event = self.calOrganizorHoldEvent()
-        else:
-            print 'Invalid choice of method for generating features!'
-            print '\t0: for training; 1 for testing!'
-            sys.exit(1)
+        self.stopwords = getStopwords()
+        self.user_friendship = self.loadFriendship()
+        self.event_info = self.loadEventInfo()
+        self.user_attend_event = self.loadUserAttendEvent()
+        self.organizor_hold_event = self.calOrganizorHoldEvent()
+        self.user_attend_content = self.calUserContent()
+        self.user_attend_category = self.calUserEventTypePref()
+        self.user_attend_time = self.calUserEventTimePref()
 
     def genFeature(self, uid, eventid):
         feature = []
@@ -68,13 +57,57 @@ class FeatureGenerator():
             2.length of event intro;
             3.number of entities;
             4.length of title;
-
+            5.number of events organizor holds
+            6.average number of users attending the above events
+            7.temporal period of event
         '''
+        if eventid not in self.event_info:
+            print 'Event basic info loss!'
+            sys.exit(1)
+        feature = []
+        eventtype = self.event_info[eventid][0]
+        feature.append(eventtype)
+        intro_length = self.event_info[eventid][1]
+        feature.append(intro_length)
+        entity_num = self.event_info[eventid][2]
+        feature.append(entity_num)
+        title_length = self.event_info[eventid][3]
+        feature.append(title_length)
+        organizor = self.event_info[eventid][5]
+        event_num = self.organizor_hold_event[organizor][-1][0]
+        average_user_num = self.organizor_hold_event[organizor][-1][1]
+        feature.append(event_num)
+        feature.append(average_user_num)
+        temporal_period = self.event_info[eventid][4]
+        feature.append(temporal_period)
+        return feature
 
     def genBigramFeature(self, uid, eventid):
-        ''' See evernote  '''
-        pass
-
+        ''' Bigram feature list:
+            1.number of event user attending this event type;
+            2.event intro similarity;
+            3.number of events organized by the current organizer
+              the target user attending;
+            4.number of events organized by the current organizer
+              the target user's friends attending;
+            5.distance between user's event region and target event;
+            6.user's active level in the corresponding temporal period.
+        '''
+        feature = []
+        eventtype = self.event_info[eventid][0]
+        event_num = self.calEventNumberForType(uid, eventid, eventtype)
+        feature.append(event_num)
+        intro_sim = self.calEventIntroSim(uid, eventid)
+        feature.append(intro_sim)
+        event_num = self.calAttendingEventForOrganizer(uid, self.event_info[eventid][5])
+        feature.append(event_num)
+        #event_num = self.calFriendAttendingEventForOrganizer(uid, self.event_info[eventid][5])
+        #feature.append(event_num)
+        distance = self.calAverageDistance(uid, eventid)
+        feature.append(distance)
+        active_level = self.calUserActiveLevelForTime(uid, eventid)
+        feature.append(active_level)
+        return feature
 
     def loadFriendship(self, infile):
         user_friends = defaultdict(list)
@@ -130,17 +163,19 @@ class FeatureGenerator():
             start_time = entry[7]
             end_time = entry[8]
             temporal_period = getIdOfTimePeriod(start_time, end_time)
-            intro_length = int(entry[9])
+            attend_user_num = int(entry[9])
             location = entry[2]
             intro = []
             for word in entry[10].split(" "):
                 if word in self.words_id:
                     intro.append(self.words_id[word])
+            intro_length = len(intro)
             for word in set(intro):
                 self.word_idf[self.words_id[word]] += 1
             event_info[eventid] = [typeid, intro_length, entity_num, title_length,
-                    temporal_period, organizor, location, " ".join(intro)]
+                    temporal_period, organizor, location, attend_user_num, " ".join(intro)]
         total_event = 1.*len(event_info)
+
         for eventid in event_info:
             intro = event_info[eventid][6]
             tf_idf = [0.0 for i in xrange(settings["MAX_WORDS"])]
@@ -152,9 +187,15 @@ class FeatureGenerator():
 
     def calOrganizorHoldEvent(self):
         organizor_hold_event = defaultdict(list)
-        for eventid in self.event_info:
-            organizor = self.event_info[eventid][5]
-            organizor_hold_event[organizor].append(eventid)
+        # constraining user attending records only from training data
+        for uid in self.user_attend_event:
+            for eventid in self.user_attend_event[uid]:
+                organizor = self.event_info[eventid][5]
+                organizor_hold_event[organizor].append([eventid, self.event_info[eventid][7]])
+        for organizor in organizor_hold_event:
+            event_num = len(organizor_hold_event[organizor])
+            average_user_num = 1.*sum([pair[1] for pair in organizor_hold_event[organizor]])/event_num
+            organizor_hold_event[organizor].append([event_num, average_user_num])
         return organizor_hold_event
 
     def calUserContent(self):
@@ -166,7 +207,7 @@ class FeatureGenerator():
             user_attend_content[uid] /= len(self.user_attend_event[uid])
         return user_attend_content
 
-    def calUserCategoryPref(self):
+    def calUserEventTypePref(self):
         user_category_pref = {}
         for uid in self.user_attend_event:
             user_category_pref[uid] = np.array([0.0 for i in xrange(settings["CATEGORY_NUM"])])
@@ -174,6 +215,15 @@ class FeatureGenerator():
                 user_category_pref[uid][self.event_info[eventid][0]] += 1
             user_category_pref[uid] /= len(self.user_attend_event[uid])
         return user_category_pref
+
+    def calUserEventTimePref(self):
+        user_time_pref = {}
+        for uid in self.user_attend_event:
+            user_time_pref[uid] = np.array([0.0 for i in xrange(settings["PERIOD_NUM"])])
+            for eventid in self.user_attend_event[uid]:
+                user_time_pref[uid][self.event_info[eventid][5]] += 1
+            user_time_pref[uid] /= len(self.user_attend_event[uid])
+        return user_time_pref
 
     def calUserLocation(self):
         user_location_addr = defaultdict(list)
@@ -183,3 +233,47 @@ class FeatureGenerator():
                 user_location_addr[uid].append(location.split(" "))
         return user_location_addr
 
+    def calEventNumberforType(self, quid, qeventid, qeventtype):
+        event_num = self.user_category_pref[quid][self.eventtype_id[qeventtype]]*len(self.user_attend_event[quid])
+        if self.gen_feature_method == 0:
+            return event_num-1
+        else:
+            return event_num
+
+    def calEventIntroSim(self, quid, qeventid):
+        if self.gen_feature_method == 0:
+            user_intro = self.user_attend_content[quid]*len(self.user_attend_event[quid])
+            user_intro -= self.event_info[qeventid][-1]
+            user_intro /= len(self.user_attend_event[quid])-1
+        else:
+            user_intro = self.user_attend_content[quid]
+        return np.dot(user_intro, self.event_info[qeventid][-1])/np.linalg.norm(user_intro)/np.linalg.norm(self.event_info[qeventid][-1])
+
+    def calAttendingEventForOrganizer(self, quid, qorganizer):
+        event_num = 0
+        for eventid in self.user_attend_event[quid]:
+            if self.event_info[eventid][5] == qorganizer:
+                event_num += 1
+        if self.gen_feature_method == 0:
+            return event_num-1
+        else:
+            return event_num
+
+    def calAverageDistance(self, quid, qeventid):
+        average_distance = 0.0
+        lat_q, lng_q = self.event_info[qeventid][6].split(" ")
+        for eventid in self.user_attend_event[quid]:
+            lat, lng = self.event_info[qeventid][6].split(" ")
+            mile = distance.distance((lat_q, lng_q), (lat, lng)).miles
+            average_distance += mile
+        if self.gen_feature_method == 0:
+            return average_distance/(len(self.user_attend_event[quid])-1)
+        else:
+            return average_distance/len(self.user_attend_event[quid])
+
+    def calUserActiveLevelForTime(self, quid, qeventid):
+        time_period = self.event_info[qeventid][4]
+        if self.gen_feature_method == 0:
+            return (self.user_attend_time[quid][time_period]*len(self.user_attend_event[quid])-1)/(len(self.user_attend_event[quid])-1)
+        else:
+            return self.user_attend_time[quid][time_period]
