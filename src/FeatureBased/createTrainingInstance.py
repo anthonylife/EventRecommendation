@@ -20,31 +20,30 @@
 ###################################################################
 
 
-import sys, csv, json, argparse, random, math
+import sys, csv, json, argparse, random
 sys.path.append("../")
-import numpy as np
 from collections import defaultdict
-from featureGenarator import FeatureGenerator
+from featureGenerator import FeatureGenerator
 
 settings = json.loads(open("../../SETTINGS.json").read())
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', type=str, action='store',
+    parser.add_argument('-d', type=int, action='store',
             dest='data_num', help='choose which data set to use')
 
     if len(sys.argv) != 3:
-        print 'Command e.g.: python createTrainingInstance.py -d 1(2)'
+        print 'Command e.g.: python createTrainingInstance.py -d 0(1)'
         sys.exit(1)
 
     para = parser.parse_args()
-    if para.data_num == 1:
+    if para.data_num == 0:
         event_intro_path = settings["ROOT_PATH"]+settings["SRC_DATA_FILE1_CITY1"]
         event_train_path = settings["ROOT_PATH"]+settings["DATA1_CITY1_TRAIN"]
         user_friend_path = settings["ROOT_PATH"]+settings["SRC_DATA_FILE1_3"]
         out_feature_path = settings["ROOT_PATH"]+settings["DATA1_CITY1_TRAIN_FEATURE"]
-    elif para.data_num == 2:
+    elif para.data_num == 1:
         event_intro_path = settings["ROOT_PATH"]+settings["SRC_DATA_FILE1_CITY2"]
         event_train_path = settings["ROOT_PATH"]+settings["DATA1_CITY2_TRAIN"]
         user_friend_path = settings["ROOT_PATH"]+settings["SRC_DATA_FILE1_3"]
@@ -53,7 +52,7 @@ def main():
         print 'Invalid choice of dataset'
         sys.exit(1)
 
-    featureGenarator = FeatureGenerator(user_friend_path, event_intro_path,
+    featureGenarator = FeatureGenerator(0, user_friend_path, event_intro_path,
             event_train_path)
 
     event_set = set([])
@@ -64,15 +63,20 @@ def main():
         event_set.add(eventid)
         user_pos_event[uid].append(eventid)
 
+    finish_num = 0
     writer = csv.writer(open(out_feature_path, "w"), lineterminator="\n")
     for uid in user_pos_event:
         for eventid in user_pos_event[uid]:
             feature = featureGenarator.genFeature(uid, eventid)
-            writer.writerow(feature)
+            writer.writerow([1, uid, eventid]+feature)
             neg_eventids = random.sample(event_set-set(user_pos_event[uid]), settings["SAMPLE_RATIO"])
             for neg_eventid in neg_eventids:
                 feature = featureGenarator.genFeature(uid, eventid)
-                writer.writerow(feature)
+                writer.writerow([0, uid, neg_eventid]+feature)
+            if (finish_num%1000) == 0 and finish_num != 0:
+                sys.stdout.write("\rFINISHED TRAINING NUM: %d. " % (finish_num+1))
+                sys.stdout.flush()
+            finish_num += 1
 
 if __name__=="__main__":
     main()

@@ -23,7 +23,7 @@
 ###################################################################
 
 
-import sys, csv, json, argparse, random, math
+import sys, csv, json, math
 sys.path.append("../")
 import numpy as np
 from geopy import distance
@@ -37,7 +37,7 @@ class FeatureGenerator():
     def __init__(self, gen_feature_method, friend_path, event_path, tr_data_path):
         self.gen_feature_method = gen_feature_method
         self.stopwords = getStopwords()
-        self.user_friendship = self.loadFriendship()
+        self.user_friendship = self.loadFriendship(friend_path)
         self.event_info = self.loadEventInfo()
         self.user_attend_event = self.loadUserAttendEvent()
         self.organizor_hold_event = self.calOrganizorHoldEvent()
