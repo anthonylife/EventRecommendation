@@ -12,13 +12,25 @@ if [ $2 = 0 ];
 then
     echo 'Running on douban Beijing dataset'
     python createTrainingInstance.py -d 0
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
     python train.py -d 0 -m 0
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
     python predict.py -d 0
 elif [ $2 = 1 ];
 then
     echo 'Running on douban Shanghai dataset'
     python createTrainingInstance.py -d 1
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
     python train.py -d 1 -m 0
+    if [ $? -ne 0 ]; then
+        exit 1
+    fi
     python predict.py -d 1
 else
     echo 'Invalid choice of dataset'

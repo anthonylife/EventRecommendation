@@ -53,12 +53,6 @@ def main():
 
 
     print("Loading data")
-    '''user_attended_event = defaultdict(list)
-    for entry in csv.reader(open(train_file)):
-        uid = entry[0]
-        eventid = entry[1]
-        user_attended_event[uid].append(eventid)'''
-
     candidate_users = set([])
     future_events = set([])
     for entry in csv.reader(open(event_test_path)):
@@ -73,7 +67,8 @@ def main():
             len(future_events))
 
     ## Personalized Recommendation
-    user_prediction_result = defaultdict(list)
+    writer = csv.writer(open(result_path, "w"), lineterminator="\n")
+    #user_prediction_result = defaultdict(list)
     featureGenarator = FeatureGenerator(1, user_friend_path, event_intro_path,
             event_train_path)
     model_path = settings["FEATURE_MODEL_PATH"]
@@ -87,9 +82,10 @@ def main():
         predictions = list(predictions)
         event_predictions = [[eventid, prediction] for eventid, prediction in zip(future_events, predictions)]
         event_predictions = sorted(event_predictions, key=lambda x:x[1], reverse=True)
-        user_prediction_result[uid] = [pair[0] for pair in event_predictions][:settings["RE_TOPK"]]
-
-    write_submission(user_prediction_result, result_path)
+        #user_prediction_result[uid] = [pair[0] for pair in event_predictions][:settings["RE_TOPK"]]
+        prediction_result = [pair[0] for pair in event_predictions]
+        writer.writerow([uid]+prediction_result)
+    #write_submission(user_prediction_result, result_path)
 
 if __name__=="__main__":
     main()

@@ -24,6 +24,7 @@ import sys, csv, json, argparse, random
 sys.path.append("../")
 from collections import defaultdict
 from featureGenerator import FeatureGenerator
+from utils import tic, toc
 
 settings = json.loads(open("../../SETTINGS.json").read())
 
@@ -65,6 +66,7 @@ def main():
 
     finish_num = 0
     writer = csv.writer(open(out_feature_path, "w"), lineterminator="\n")
+    tic()
     for uid in user_pos_event:
         for eventid in user_pos_event[uid]:
             feature = featureGenarator.genFeature(uid, eventid)
@@ -75,7 +77,9 @@ def main():
                 writer.writerow([0, uid, neg_eventid]+feature)
             if (finish_num%1000) == 0 and finish_num != 0:
                 sys.stdout.write("\rFINISHED TRAINING NUM: %d. " % (finish_num+1))
+                toc()
                 sys.stdout.flush()
+                tic()
             finish_num += 1
 
 if __name__=="__main__":

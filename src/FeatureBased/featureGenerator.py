@@ -33,13 +33,14 @@ from utils import getIdOfTimePeriod, isChinese, getStopwords
 distance.distance = distance.GreatCircleDistance
 settings = json.loads(open("../../SETTINGS.json").read())
 
+
 class FeatureGenerator():
     def __init__(self, gen_feature_method, friend_path, event_path, tr_data_path):
         self.gen_feature_method = gen_feature_method
         self.stopwords = getStopwords()
         self.user_friendship = self.loadFriendship(friend_path)
-        self.event_info = self.loadEventInfo()
-        self.user_attend_event = self.loadUserAttendEvent()
+        self.event_info = self.loadEventInfo(event_path)
+        self.user_attend_event = self.loadUserAttendEvent(tr_data_path)
         self.organizor_hold_event = self.calOrganizorHoldEvent()
         self.user_attend_content = self.calUserContent()
         self.user_attend_category = self.calUserEventTypePref()
@@ -89,7 +90,7 @@ class FeatureGenerator():
             3.number of events organized by the current organizer
               the target user attending;
             4.number of events organized by the current organizer
-              the target user's friends attending;
+              the target user's friends attending (Note:Currently Missing);
             5.distance between user's event region and target event;
             6.user's active level in the corresponding temporal period.
         '''
@@ -121,8 +122,8 @@ class FeatureGenerator():
         user_attend_event = defaultdict(list)
         for entry in csv.reader(open(infile)):
             uid = entry[0]
-            eventids = entry[1].split(" ")
-            user_attend_event[uid] = eventids
+            eventid = entry[1]
+            user_attend_event[uid].append(eventid)
         return user_attend_event
 
     def loadEventInfo(self, infile):
@@ -164,24 +165,24 @@ class FeatureGenerator():
             end_time = entry[8]
             temporal_period = getIdOfTimePeriod(start_time, end_time)
             attend_user_num = int(entry[9])
-            location = entry[2]
+            location = entry[3]
             intro = []
             for word in entry[10].split(" "):
                 if word in self.words_id:
                     intro.append(self.words_id[word])
             intro_length = len(intro)
-            for word in set(intro):
-                self.word_idf[self.words_id[word]] += 1
+            for wordid in set(intro):
+                self.word_idf[wordid] += 1
             event_info[eventid] = [typeid, intro_length, entity_num, title_length,
-                    temporal_period, organizor, location, attend_user_num, " ".join(intro)]
+                    temporal_period, organizor, location, attend_user_num, intro]
         total_event = 1.*len(event_info)
 
         for eventid in event_info:
-            intro = event_info[eventid][6]
+            intro = event_info[eventid][-1]
             tf_idf = [0.0 for i in xrange(settings["MAX_WORDS"])]
             intro_length = event_info[eventid][1]
-            for word in intro.split(" "):
-                tf_idf[word] += 1.0/intro_length*math.log(total_event/self.word_idf[word])
+            for wordid in intro:
+                tf_idf[wordid] += 1.0/intro_length*math.log(total_event/self.word_idf[wordid])
             event_info[eventid].append(tf_idf)
         return event_info
 
@@ -221,7 +222,7 @@ class FeatureGenerator():
         for uid in self.user_attend_event:
             user_time_pref[uid] = np.array([0.0 for i in xrange(settings["PERIOD_NUM"])])
             for eventid in self.user_attend_event[uid]:
-                user_time_pref[uid][self.event_info[eventid][5]] += 1
+                user_time_pref[uid][self.event_info[eventid][4]] += 1
             user_time_pref[uid] /= len(self.user_attend_event[uid])
         return user_time_pref
 
@@ -233,8 +234,8 @@ class FeatureGenerator():
                 user_location_addr[uid].append(location.split(" "))
         return user_location_addr
 
-    def calEventNumberforType(self, quid, qeventid, qeventtype):
-        event_num = self.user_category_pref[quid][self.eventtype_id[qeventtype]]*len(self.user_attend_event[quid])
+    def calEventNumberForType(self, quid, qeventid, qeventtype):
+        event_num = self.user_attend_category[quid][qeventtype]*len(self.user_attend_event[quid])
         if self.gen_feature_method == 0:
             return event_num-1
         else:
@@ -244,10 +245,18 @@ class FeatureGenerator():
         if self.gen_feature_method == 0:
             user_intro = self.user_attend_content[quid]*len(self.user_attend_event[quid])
             user_intro -= self.event_info[qeventid][-1]
+            if (len(self.user_attend_event[quid])-1)==0:
+                print 'Unexpected error occur: user attending so few events.'
+                sys.exit(1)
             user_intro /= len(self.user_attend_event[quid])-1
         else:
             user_intro = self.user_attend_content[quid]
-        return np.dot(user_intro, self.event_info[qeventid][-1])/np.linalg.norm(user_intro)/np.linalg.norm(self.event_info[qeventid][-1])
+        norm1 = np.linalg.norm(user_intro)
+        norm2 = np.linalg.norm(self.event_info[qeventid][-1])
+        if norm1 != 0 and norm2 != 0:
+            return np.dot(user_intro, self.event_info[qeventid][-1])/np.linalg.norm(user_intro)/np.linalg.norm(self.event_info[qeventid][-1])
+        else:
+            return 0.0
 
     def calAttendingEventForOrganizer(self, quid, qorganizer):
         event_num = 0
@@ -262,8 +271,12 @@ class FeatureGenerator():
     def calAverageDistance(self, quid, qeventid):
         average_distance = 0.0
         lat_q, lng_q = self.event_info[qeventid][6].split(" ")
+        lat_q = float(lat_q)
+        lng_q = float(lng_q)
         for eventid in self.user_attend_event[quid]:
             lat, lng = self.event_info[qeventid][6].split(" ")
+            lat = float(lat)
+            lng = float(lng)
             mile = distance.distance((lat_q, lng_q), (lat, lng)).miles
             average_distance += mile
         if self.gen_feature_method == 0:
