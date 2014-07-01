@@ -23,6 +23,7 @@ sys.path.append("../")
 from collections import defaultdict
 from utils import load_model, write_submission
 from featureGenerator import FeatureGenerator
+from utils import tic, toc
 
 settings = json.loads(open("../../SETTINGS.json").read())
 
@@ -73,6 +74,7 @@ def main():
             event_train_path)
     model_path = settings["FEATURE_MODEL_PATH"]
     classifier = load_model(model_path)
+    finish_num = 0
     for uid in candidate_users:
         features = []
         for candidate_eventid in future_events:
@@ -85,6 +87,12 @@ def main():
         #user_prediction_result[uid] = [pair[0] for pair in event_predictions][:settings["RE_TOPK"]]
         prediction_result = [pair[0] for pair in event_predictions]
         writer.writerow([uid]+prediction_result)
+        finish_num += 1
+        if (finish_num%1000) == 0 and finish_num != 0:
+            sys.stdout.write("\rFINISHED TRAINING NUM: %d. " % (finish_num+1))
+            toc()
+            sys.stdout.flush()
+            tic()
     #write_submission(user_prediction_result, result_path)
 
 if __name__=="__main__":

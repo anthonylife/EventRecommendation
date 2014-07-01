@@ -75,12 +75,12 @@ def main():
             for neg_eventid in neg_eventids:
                 feature = featureGenarator.genFeature(uid, eventid)
                 writer.writerow([0, uid, neg_eventid]+feature)
+            finish_num += 1
             if (finish_num%1000) == 0 and finish_num != 0:
                 sys.stdout.write("\rFINISHED TRAINING NUM: %d. " % (finish_num+1))
                 toc()
                 sys.stdout.flush()
                 tic()
-            finish_num += 1
 
 if __name__=="__main__":
     main()
