@@ -1,3 +1,5 @@
+import random, time
+
 def rZero(k):
     return [0.0 for i in range(k)]
 
@@ -21,4 +23,10 @@ def rPosGaussian(k):
             factor[i] = -1
         factor[i] = (factor[i]+1)/2.0
     return factor
+
+def tic():
+    globals()['tt'] = time.clock()
+
+def toc():
+    return time.clock()-globals()['tt']
 

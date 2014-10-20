@@ -1,6 +1,8 @@
 #!/bin/sh
 
-#python train.py -retrain True -init gaussian -tv 0.8
 
-python train.py -retrain False -init gaussian -tv 0.9
+python train.py -d 0 -r True -init gaussian 
+##python train.py -d 0 -r False -init gaussian 
 
+##python train.py -d 1 -r True -init gaussian 
+##python train.py -d 1 -r False -init gaussian 

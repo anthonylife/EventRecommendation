@@ -36,7 +36,7 @@ def main():
             dest='data_num', help='choose which data set to use')
 
     if len(sys.argv) != 7:
-        print 'Command e.g.: python train.py -retrain True -init zero(gaussian)'
+        print 'Command e.g.: python train.py -d 0(1) -r True -init zero(gaussian)'
         sys.exit(1)
 
     para = parser.parse_args()
@@ -58,9 +58,9 @@ def main():
     if para.retrain_choice == "True":
         wmf.model_init(event_train_path, para.init_choice)
         wmf.train()
-        wmf.genRecommendResult(True, event_test_path, para.init_choice, result_path)
+        wmf.genRecommendResult(True, event_train_path, event_test_path, para.init_choice, result_path)
     else:
-        wmf.genRecommendResult(False, event_test_path, para.init_choice, result_path)
+        wmf.genRecommendResult(False, event_train_path, event_test_path, para.init_choice, result_path)
 
 if __name__ == "__main__":
     main()
