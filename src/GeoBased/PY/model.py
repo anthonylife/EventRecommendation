@@ -127,7 +127,8 @@ def normGaussian(x):
 
 
 def kernelInfluence(mean, dis_std, x):
-    dis = np.sqrt(np.sum((x-mean)**2))
+    #dis = np.sqrt(np.sum((x-mean)**2))
+    dis = GreatCircleDistance(x, mean).kilometers
     return 1./dis_std*normGaussian(dis/dis_std)
 
 
@@ -212,7 +213,7 @@ class GeoMF_D():
         self.city_id = city_id
 
         # SGD
-        self.niters1 = 10
+        self.niters1 = 20
         self.lr1 = 0.01
         self.lambda1 = 0.001
         self.neg_num1 = 5
@@ -428,7 +429,7 @@ class GeoMF_D():
     def sgd_update(self, uid, eid, label, weight):
         res = np.dot(self.user_geo_factor[uid], self.event_geo_factor[eid])-label
         self.user_geo_factor[uid] -= self.lr1*(weight*res*self.event_geo_factor[eid]+self.lambda1*self.user_geo_factor[uid])
-        self.user_geo_factor[uid] = projectOper(self.user_geo_factor[uid])
+        #self.user_geo_factor[uid] = projectOper(self.user_geo_factor[uid])
 
 
     def evaluation(self, weight_tag = False):
@@ -455,21 +456,13 @@ class GeoMF_D():
 
 
     def genRecommendResult(self, test_file, result_path):
-        valid_event = set([])
-        for entry in csv.reader(open(test_file, "r")):
-            event_name = entry[1]
-            if event_name not in self.event_ids:
-                print 'Error (event has no info) occur in our code'
-                sys.exit(1)
-            valid_event.add(event_name)
-        print "Number of test event %d" % len(valid_event)
+        print "Number of test event %d" % (len(self.event_ids)-self.old_event_num)
         wfd = open(result_path, 'w')
         for uid in xrange(len(self.user_ids)):
             wfd.write("%s" % self.ruser_ids[uid])
             newevent_pref = []
             for eid in xrange(self.old_event_num, len(self.event_ids)):
-                if self.revent_ids[eid] in valid_event:
-                    newevent_pref.append([self.revent_ids[eid], np.dot(self.user_geo_factor[uid], self.event_geo_factor[eid])])
+                newevent_pref.append([self.revent_ids[eid], np.dot(self.user_geo_factor[uid], self.event_geo_factor[eid])])
             results = sorted(newevent_pref, key=lambda x:x[1], reverse=True)
             recommendations = [x[0] for x in results]
             for event in recommendations[:settings["RE_TOPK"]]:
@@ -488,7 +481,7 @@ class GeoMF_O():
         self.city_id = city_id
 
         # SGD
-        self.niters1 = 2
+        self.niters1 = 20
         self.lr1 = 0.01
         self.lambda1 = 0.001
         self.neg_num1 = 5
@@ -513,7 +506,7 @@ class GeoMF_O():
             pass
 
 
-    def model_init(self, train_file, eventinfo_file):
+    def model_init(self, train_file, test_file, eventinfo_file):
         self.user_ids = {}
         self.ruser_ids = {}
         self.event_ids = {}
@@ -528,19 +521,17 @@ class GeoMF_O():
                 self.event_ids[eventname] = len(self.event_ids)
                 self.revent_ids[self.event_ids[eventname]] = eventname
         self.old_event_num = len(self.event_ids)
-
-        for entry in csv.reader(open(eventinfo_file, "r"), lineterminator="\n"):
-            eventname = entry[0]
+        for entry in csv.reader(open(test_file, "r")):
+            eventname = entry[1]
             if eventname not in self.event_ids:
-                geoaddr = map(float, entry[3].split(' '))
-                if checkGeoScope(geoaddr, self.city_id):
-                    self.event_ids[eventname] = len(self.event_ids)
-        self.event_geo = [[] for i in xrange(len(self.event_ids))]
+                self.event_ids[eventname] = len(self.event_ids)
+                self.revent_ids[self.event_ids[eventname]] = eventname
+        self.event_addrs = [[] for i in xrange(len(self.event_ids))]
         for entry in csv.reader(open(eventinfo_file, "r"), lineterminator="\n"):
             eventname = entry[0]
             if eventname in self.event_ids:
                 geoaddr = map(float, entry[3].split(' '))
-                self.event_geo[self.event_ids[eventname]] = geoaddr
+                self.event_addrs[self.event_ids[eventname]] = geoaddr
 
         self.user_geo_factor = np.array([rPosGaussian(self.ndim) for i in
             xrange(len(self.user_ids))])
@@ -572,7 +563,7 @@ class GeoMF_O():
 
     def calGeoInfluence(self):
         event_geo_factor = []
-        for geo_addr in self.event_geo:
+        for geo_addr in self.event_addrs:
             #geo_factor = roundToZero(personalKernelInfluence(self.grids, geo_addr))
             geo_factor = roundToZero(distanceKernelInfluence(self.grids, geo_addr))
             event_geo_factor.append(geo_factor)
@@ -653,20 +644,13 @@ class GeoMF_O():
 
 
     def genRecommendResult(self, test_file, result_path):
-        valid_event = set([])
-        for entry in csv.reader(open(test_file, "r")):
-            event_name = entry[1]
-            if event_name not in self.event_ids:
-                print 'Error (event has no info) occur in our code'
-                sys.exit(1)
-            valid_event.add(event_name)
+        print "Number of test event %d" % (len(self.event_ids)-self.old_event_num)
         wfd = open(result_path, 'w')
         for uid in xrange(len(self.user_ids)):
             wfd.write("%s" % self.ruser_ids[uid])
             newevent_pref = []
             for eid in xrange(self.old_event_num, len(self.event_ids)):
-                if self.revent_ids[eid] in valid_event:
-                    newevent_pref.append([self.revent_ids[eid], np.dot(self.user_geo_factor[uid], self.event_geo_factor[eid])])
+                newevent_pref.append([self.revent_ids[eid], np.dot(self.user_geo_factor[uid], self.event_geo_factor[eid])])
             results = sorted(newevent_pref, key=lambda x:x[1], reverse=True)
             recommendations = [x[0] for x in results]
             for event in recommendations[:settings["RE_TOPK"]]:
@@ -681,14 +665,14 @@ class GeoMF_O():
 class HeSig():
     def __init__(self, cluster_method=2, cluter_tag=False, train_path=None, event_info_path=None, city_id=None):
         self.loss_choice = 0      # 0:reg; 1:pairwise ranking
-        self.ndim = 10
+        self.ndim = 20
         self.tr_method = 0        # 0:SGD1; 1:SGD2
         self.cluster_method = cluster_method   # 0:DPGMM; 1:GMM; 2:K-means
         self.n_components = 20
         self.city_id = city_id
 
         # SGD
-        self.niters1 = 2
+        self.niters1 = 10
         self.lr1 = 0.01
         self.lambda1 = 0.001
         self.neg_num1 = 5
@@ -753,7 +737,7 @@ class HeSig():
                 sys.exit(1)
 
 
-    def model_init(self, train_file, eventinfo_file):
+    def model_init(self, train_file, test_file, eventinfo_file):
         self.user_ids = {}
         self.ruser_ids = {}
         self.event_ids = {}
@@ -768,19 +752,17 @@ class HeSig():
                 self.event_ids[eventname] = len(self.event_ids)
                 self.revent_ids[self.event_ids[eventname]] = eventname
         self.old_event_num = len(self.event_ids)
-
-        for entry in csv.reader(open(eventinfo_file, "r"), lineterminator="\n"):
-            eventname = entry[0]
+        for entry in csv.reader(open(test_file, "r")):
+            eventname = entry[1]
             if eventname not in self.event_ids:
-                geoaddr = map(float, entry[3].split(' '))
-                if checkGeoScope(geoaddr, self.city_id):
-                    self.event_ids[eventname] = len(self.event_ids)
-        self.event_geo = [[] for i in xrange(len(self.event_ids))]
+                self.event_ids[eventname] = len(self.event_ids)
+                self.revent_ids[self.event_ids[eventname]] = eventname
+        self.event_addrs = [[] for i in xrange(len(self.event_ids))]
         for entry in csv.reader(open(eventinfo_file, "r"), lineterminator="\n"):
             eventname = entry[0]
             if eventname in self.event_ids:
                 geoaddr = map(float, entry[3].split(' '))
-                self.event_geo[self.event_ids[eventname]] = geoaddr
+                self.event_addrs[self.event_ids[eventname]] = geoaddr
 
         if self.cluster_method == 0:
             cluster_fd = open(settings["DPGMM_CLUSTER"], "rb")
@@ -796,7 +778,7 @@ class HeSig():
             xrange(len(self.user_ids))])
         self.grid_geo_factor = np.array([rPosGaussian(self.ndim) for i in
             xrange(self.n_components)])
-        self.event_grid_dis = np.array(self.calEventGridDis(means, variances, self.event_geo))
+        self.event_grid_dis = np.array(self.calEventGridDis(means, variances, self.event_addrs))
 
         if self.tr_method == 0:
             self.pool_eids = [i for i in xrange(self.old_event_num)]
@@ -911,23 +893,16 @@ class HeSig():
 
 
     def genRecommendResult(self, test_file, result_path):
-        valid_event = set([])
-        for entry in csv.reader(open(test_file, "r")):
-            event_name = entry[1]
-            if event_name not in self.event_ids:
-                print 'Error (event has no info) occur in our code'
-                sys.exit(1)
-            valid_event.add(event_name)
+        print "Number of test event %d" % (len(self.event_ids)-self.old_event_num)
         wfd = open(result_path, 'w')
         for uid in xrange(len(self.user_ids)):
             wfd.write("%s" % self.ruser_ids[uid])
             newevent_pref = []
             for eid in xrange(self.old_event_num, len(self.event_ids)):
-                if self.revent_ids[eid] in valid_event:
-                    pred = 0.0
-                    for i in xrange(self.n_components):
-                        pred += np.dot(self.user_geo_factor[uid], self.grid_geo_factor[i])*self.event_grid_dis[eid][i]
-                    newevent_pref.append([self.revent_ids[eid], pred])
+                pred = 0.0
+                for i in xrange(self.n_components):
+                    pred += np.dot(self.user_geo_factor[uid], self.grid_geo_factor[i])*self.event_grid_dis[eid][i]
+                newevent_pref.append([self.revent_ids[eid], pred])
             results = sorted(newevent_pref, key=lambda x:x[1], reverse=True)
             recommendations = [x[0] for x in results]
             for event in recommendations[:settings["RE_TOPK"]]:
@@ -945,7 +920,7 @@ class Distance():
         self.alpha1 = 1
         self.beta1 = 1
         # SGD1
-        self.niters1 = 10
+        self.niters1 = 5
         self.lr1 = 0.001
         self.lambda1 = 0.001
         self.w0 = rPosGaussian(1)[0]
@@ -953,10 +928,11 @@ class Distance():
         self.a = 0.0
         self.b = 0.0
 
-    def model_init(self, train_file, eventinfo_file):
+    def model_init(self, train_file, test_file, eventinfo_file):
         self.user_ids = {}
         self.ruser_ids = {}
         self.event_ids = {}
+        self.revent_ids = {}
         data = [entry for entry in csv.reader(open(train_file))]
         for entry in data:
             uname, eventname = entry[0], entry[1]
@@ -965,20 +941,19 @@ class Distance():
                 self.ruser_ids[self.user_ids[uname]] = uname
             if eventname not in self.event_ids:
                 self.event_ids[eventname] = len(self.event_ids)
+                self.revent_ids[self.event_ids[eventname]] = eventname
         self.old_event_num = len(self.event_ids)
-
-        for entry in csv.reader(open(eventinfo_file, "r"), lineterminator="\n"):
-            eventname = entry[0]
+        for entry in csv.reader(open(test_file, "r")):
+            eventname = entry[1]
             if eventname not in self.event_ids:
-                geoaddr = map(float, entry[3].split(' '))
-                if checkGeoScope(geoaddr, self.city_id):
-                    self.event_ids[eventname] = len(self.event_ids)
-        self.event_geo = [[] for i in xrange(len(self.event_ids))]
+                self.event_ids[eventname] = len(self.event_ids)
+                self.revent_ids[self.event_ids[eventname]] = eventname
+        self.event_addrs = [[] for i in xrange(len(self.event_ids))]
         for entry in csv.reader(open(eventinfo_file, "r"), lineterminator="\n"):
             eventname = entry[0]
             if eventname in self.event_ids:
                 geoaddr = map(float, entry[3].split(' '))
-                self.event_geo[self.event_ids[eventname]] = geoaddr
+                self.event_addrs[self.event_ids[eventname]] = geoaddr
 
         self.pool_eids = [i for i in xrange(self.old_event_num)]
         self.user_interacted_event = defaultdict(set)
@@ -991,8 +966,8 @@ class Distance():
             random.shuffle(events)
             for i in xrange(len(events[:5])):
                 for j in xrange(i+1, len(events[:5])):
-                    distance = GreatCircleDistance(self.event_geo[events[i]], self.event_geo[events[j]]).kilometers
-                    if distance < 1e-10:
+                    distance = GreatCircleDistance(self.event_addrs[events[i]], self.event_addrs[events[j]]).kilometers
+                    if distance < MIN_EPSILON:
                         self.tr_instances.append([uid, events[i], events[j], -23])
                     else:
                         self.tr_instances.append([uid, events[i], events[j], np.log(distance)])
@@ -1024,9 +999,17 @@ class Distance():
             for j in xrange(scan_idx, len(self.pool_eids)):
                 neg_eid = self.pool_eids[j]
                 if neg_eid not in self.user_interacted_event[uid]:
-                    distance = np.log(GreatCircleDistance(self.event_geo[eid1], self.event_geo[neg_eid]).kilometers)
+                    distance = GreatCircleDistance(self.event_addrs[eid1], self.event_addrs[neg_eid]).kilometers
+                    if distance < MIN_EPSILON:
+                        distance = -23
+                    else:
+                        distance = np.log(distance)
                     self.sgd_update(distance, -23, self.beta1)
-                    distance = np.log(GreatCircleDistance(self.event_geo[eid2], self.event_geo[neg_eid]).kilometers)
+                    distance = GreatCircleDistance(self.event_addrs[eid2], self.event_addrs[neg_eid]).kilometers
+                    if distance < MIN_EPSILON:
+                        distance = -23
+                    else:
+                        distance = np.log(distance)
                     self.sgd_update(distance, -23, self.beta1)
                     break
             scan_idx = j+1
@@ -1055,23 +1038,16 @@ class Distance():
 
 
     def genRecommendResult(self, test_file, result_path):
-        valid_event = set([])
-        for entry in csv.reader(open(test_file, "r")):
-            event_name = entry[1]
-            if event_name not in self.event_ids:
-                print 'Error (event has no info) occur in our code'
-                sys.exit(1)
-            valid_event.add(event_name)
+        print "Number of test event %d" % (len(self.event_ids)-self.old_event_num)
         wfd = open(result_path, 'w')
         for uid in xrange(len(self.user_ids)):
             wfd.write("%s" % self.ruser_ids[uid])
             newevent_pref = []
             for eid in xrange(self.old_event_num, len(self.event_ids)):
-                if self.revent_ids[eid] in valid_event:
-                    pred = 0.0
-                    for attended_eid in self.user_interacted_event[uid]:
-                        pred += self.predict(GreatCircleDistance(self.event_geo[eid], self.event_geo[attended_eid]).kilometers, True)
-                    newevent_pref.append([self.revent_ids[eid], pred])
+                pred = 0.0
+                for attended_eid in self.user_interacted_event[uid]:
+                    pred += self.predict(GreatCircleDistance(self.event_addrs[eid], self.event_addrs[attended_eid]).kilometers, True)
+                newevent_pref.append([self.revent_ids[eid], pred])
             results = sorted(newevent_pref, key=lambda x:x[1], reverse=True)
             recommendations = [x[0] for x in results]
             for event in recommendations[:settings["RE_TOPK"]]:
